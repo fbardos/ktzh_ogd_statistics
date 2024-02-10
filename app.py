@@ -211,31 +211,35 @@ def main(
     
     prog.empty()
     return fig, df_stat
+
+
+def intro_text(days_short: int = 30):
+    return f"""
+        Diese Applikation visualisiert die Zugriffsstatistik der publizierenden Organisationen
+        des Metadatenkatalogs des Kantons Zürich. Dabei wird ein Graph generiert, der die Ähnlichkeit
+        zweier Datensätze darstellt. Verwenden zwei Datensätze ähnliche Keywords, dann stehen sie
+        näher beeinander. Die Grösse der Nodes repräsentiert die Anzahl der Zugriffe der letzten `{days_short}` Tage,
+        die Farbe des Nodes gibt an, ob die Zugriffe in kürzerer Zeit zugenommen (:red[rot]) oder abgenommen (:blue[blau]) haben.
+        Die Schriftfarbe der Nodes gibt die Organisation an, die den Datensatz publiziert hat.
+        Quellen:
+        * [Metadatenkatalog]({METADATA_URL})
+        * [Zugriffs-Statistik]({STATISTICS_URL})
+        * [Github-Repo]({GITHUB_URL})
+    """
     
 
 logging.basicConfig(level=logging.INFO)
 st.set_page_config(layout="wide")
 st.title('OGD Kanton Zürich Zugriffsstatistik')
-st.markdown((f"""
-    Diese Applikation visualisiert die Zugriffsstatistik der publizierenden Organisationen
-    des Metadatenkatalogs des Kantons Zürich. Dabei wird ein Graph generiert, der die Ähnlichkeit
-    zweier Datensätze darstellt. Verwenden zwei Datensätze ähnliche Keywords, dann stehen sie
-    näher beeinander. Die Grösse der Nodes repräsentiert die Anzahl der Zugriffe der letzten 30 Tage,
-    die Farbe des Nodes gibt an, ob die Zugriffe in kürzerer Zeit zugenommen (:red[rot]) oder abgenommen (:blue[blau]) haben.
-    Die Schriftfarbe der Nodes gibt die Organisation an, die den Datensatz publiziert hat.
-    Quellen:
-    * [Metadatenkatalog]({METADATA_URL})
-    * [Zugriffs-Statistik]({STATISTICS_URL})
-    * [Github-Repo]({GITHUB_URL})
+intro = st.markdown(intro_text(30))
 
-"""
-))
 input_col1, input_col2 = st.columns(2, gap='medium')
 input_col1.subheader('Filter (generell)')
 timespan = input_col1.slider(
     'Vergleich Zugriffszahlen (in Tagen)',
     1, 180, (30, 180),
 )
+intro.write(intro_text(timespan[0]))
 input_thresold_avg_long = input_col1.slider(
     'Schwelle für durchschnittliche Zugriffe (letzte 180 Tage)',
     1, 100, 1,
@@ -270,7 +274,6 @@ fig, df_stat_out = main(
 )
 st.subheader('Graph')
 _html = fig.to_html_standalone()
-print(_html)
 st.components.v1.html(_html, height=1208)
 st.subheader('Zugriffsstatistik')
 st.markdown(
