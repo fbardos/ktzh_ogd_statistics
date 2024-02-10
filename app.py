@@ -95,12 +95,10 @@ def main(
     df_cartesian['keyword_x'] = df_cartesian['keyword_x'].apply(set)
     df_cartesian['keyword_y'] = df_cartesian['keyword_y'].apply(set)
     prog.progress(0.4, text='Häufig verwendete Keywords werden gefiltert...')
-    import time; start = time.time()  # TODO: REMOVE
     df_cartesian['_sub_keyword_x'] = df_cartesian['keyword_x'] - EXCLUDE_KEYWORDS
     df_cartesian['_sub_keyword_y'] = df_cartesian['keyword_y'] - EXCLUDE_KEYWORDS
     df_cartesian['_sub_keyword_x'] = df_cartesian['_sub_keyword_x'].apply(list)
     df_cartesian['_sub_keyword_y'] = df_cartesian['_sub_keyword_y'].apply(list)
-    logging.info(f'Elapsed time: {time.time() - start}')  # TODO: REMOVE
     prog.progress(0.5, text='Ähnlichkeit der Datensätze wird berechnet...')
     df_cartesian = df_cartesian[df_cartesian['id_x'] < df_cartesian['id_y']]
     df_cartesian['weight'] = df_cartesian.apply(lambda x: SequenceMatcher(None, x['_sub_keyword_x'], x['_sub_keyword_y']).ratio(), axis=1)
