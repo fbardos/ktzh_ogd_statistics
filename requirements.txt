@@ -1,7 +1,7 @@
-- gravis
-- matplotlib
-- networkx
-- pandas
-- requests
-- seaborn
-- streamlit
+gravis
+matplotlib
+networkx
+pandas
+requests
+seaborn
+streamlit
