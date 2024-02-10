@@ -1,0 +1,7 @@
+- gravis
+- matplotlib
+- networkx
+- pandas
+- requests
+- seaborn
+- streamlit
