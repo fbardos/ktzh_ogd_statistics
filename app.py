@@ -13,11 +13,14 @@ import streamlit as st
 
 from annotated_text import annotated_text
 
+
 STATISTICS_URL = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005024.csv'
 STATISTICS_METADATA_URL = 'https://opendata.swiss/de/dataset/web-analytics-des-datenkatalogs-des-kantons-zurich/resource/c72eda06-befb-4b21-bc39-75340f7546cb'
 METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/daten/zhweb.json'
 GITHUB_URL = 'https://github.com/fbardos/ktzh_ogd_statistics'
 DEFAULT_EXCLUDE_KEYWORDS = {'ogd', 'kanton_zuerich', 'bezirke', 'gemeinden'}
+OGD_METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/datenkatalog/standalone/'
+
 
 # Get basic data
 logging.info('Get data from KTZH metacatalogue...')
@@ -172,6 +175,9 @@ def main(
             f"<td>{round(row['avg_long'], 1)}</td>"
             "</tr>"
             "</table>"
+            "<br>"
+            "<b>Link Datensatz</b><br>"
+            f"<a href='{OGD_METADATA_URL}datasets/{row['identifier']}' target='_blank'>{row['identifier']}</a><br>"
             "<br>"
             "<b>Keywords</b><br>"
             f"{', '.join(row['keyword'])}"
