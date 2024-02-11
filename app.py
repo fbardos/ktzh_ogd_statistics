@@ -11,7 +11,10 @@ import requests
 import seaborn as sns
 import streamlit as st
 
+from annotated_text import annotated_text
+
 STATISTICS_URL = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005024.csv'
+STATISTICS_METADATA_URL = 'https://opendata.swiss/de/dataset/web-analytics-des-datenkatalogs-des-kantons-zurich/resource/c72eda06-befb-4b21-bc39-75340f7546cb'
 METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/daten/zhweb.json'
 GITHUB_URL = 'https://github.com/fbardos/ktzh_ogd_statistics'
 DEFAULT_EXCLUDE_KEYWORDS = {'ogd', 'kanton_zuerich', 'bezirke', 'gemeinden'}
@@ -137,15 +140,41 @@ def main(
     # Generate metadata for gravis
     prog.progress(0.7, text=f'Der Graph hat {G.number_of_nodes()} Nodes und {G.number_of_edges()} Udges. Generiere Metadaten...')
     _hover = {}
+    # for _, row in data_meta.iterrows():
+        # _hover[row['id']] = (
+            # f"<b>{row['title']}</b><br>"
+            # f"<i>{row['description']}</i><br><br>"
+            # f"ID: {row['id']}<br>"
+            # f"Organisation: {row['publisher']}<br>"
+            # f"Klicks (letzte {AVG_SHORT_DAYS} Tage): {int(row['avg_short'])}<br>"
+            # f"Klicks (letzte {AVG_LONG_DAYS} Tage, in Relation zu {AVG_SHORT_DAYS} Tagen): {round(row['avg_long'], 1)}<br>"
+            # f"Keywords: {', '.join(row['keyword'])}"
+        # )
     for _, row in data_meta.iterrows():
         _hover[row['id']] = (
             f"<b>{row['title']}</b><br>"
             f"<i>{row['description']}</i><br><br>"
-            f"ID: {row['id']}<br>"
-            f"Organisation: {row['publisher']}<br>"
-            f"Klicks (letzte {AVG_SHORT_DAYS} Tage): {int(row['avg_short'])}<br>"
-            f"Klicks (letzte {AVG_LONG_DAYS} Tage, in Relation zu {AVG_SHORT_DAYS} Tagen): {round(row['avg_long'], 1)}<br>"
-            f"Keywords: {', '.join(row['keyword'])}"
+            "<table>"
+            "<tr>"
+            "<td><b>ID</b></td>"
+            f"<td>{row['id']}</td>"
+            "</tr>"
+            "<tr>"
+            "<td><b>Organisation</b></td>"
+            f"<td>{row['publisher']}</td>"
+            "</tr>"
+            "<tr>"
+            f"<td><b>Klicks ({AVG_SHORT_DAYS} Tage)</b></td>"
+            f"<td>{int(row['avg_short'])} {'▲' if row['avg_short'] > row['avg_long'] else '▼'}</td>"
+            "</tr>"
+            "<tr>"
+            f"<td><b>Klicks ({AVG_LONG_DAYS} Tage, pro {AVG_SHORT_DAYS} Tage)</b></td>"
+            f"<td>{round(row['avg_long'], 1)}</td>"
+            "</tr>"
+            "</table>"
+            "<br>"
+            "<b>Keywords</b><br>"
+            f"{', '.join(row['keyword'])}"
         )
     nx.set_node_attributes(G, _hover, 'hover')
 
@@ -208,59 +237,69 @@ def main(
     )
     
     prog.empty()
-    return fig, df_stat
+    return fig, df_stat, G.number_of_nodes(), G.number_of_edges()
 
 
 def intro_text(days_short: int = 30):
     return f"""
-        Diese Applikation visualisiert die Zugriffsstatistik der publizierenden Organisationen
-        des Metadatenkatalogs des Kantons Zürich. Dabei wird ein Graph generiert, der die Ähnlichkeit
-        zweier Datensätze darstellt. Verwenden zwei Datensätze ähnliche Keywords, dann stehen sie
-        näher beeinander. Die Grösse der Nodes repräsentiert die Anzahl der Zugriffe der letzten `{days_short}` Tage,
-        die Farbe des Nodes gibt an, ob die Zugriffe in kürzerer Zeit zugenommen (:red[rot]) oder abgenommen (:blue[blau]) haben.
-        Die Schriftfarbe der Nodes gibt die Organisation an, die den Datensatz publiziert hat.
-        Quellen:
-        * [Metadatenkatalog]({METADATA_URL})
-        * [Zugriffs-Statistik]({STATISTICS_URL})
-        * [Github-Repo]({GITHUB_URL})
+        Diese Applikation visualisiert die Zugriffsstatistik der OGD-Datensätze
+        des [Metadatenkatalogs des Kantons Zürich](https://www.web.statistik.zh.ch/ogd/datenkatalog/standalone/).
+        Dabei wird ein Graph generiert, der die Ähnlichkeit zweier Datensätze darstellt.
+        Die Zugriffsstatistik bildet Zugriffe (Klicks) auf den Datenkatalog des Kantons Zürich ab. Nicht enthalten
+        sind direkte File-Zugriffe oder Zugriffe von anderen Katalogen wie [opendata.swiss](http://opendata.swiss).
+
+        * Verwenden zwei Datensätze ähnliche Keywords, dann stehen sie näher beeinander (Spring Layout).
+        * Die **Grösse der Nodes** repräsentiert die Anzahl der Zugriffe der letzten `{days_short}` Tage.
+        * Die **Farbe des Nodes** gibt an, ob die Zugriffe in kürzerer Zeit zugenommen (:red[rot]) oder abgenommen (:blue[blau]) haben.
+        * Die **Schriftfarbe der Nodes** gibt die Organisation an, die den Datensatz publiziert hat.
+        * Die **Dicke der Edges** repräsentiert die Ähnlichkeit der Keywords zweier Datensätze.
     """
     
 
 logging.basicConfig(level=logging.INFO)
 st.set_page_config(layout="wide")
 st.title('OGD Kanton Zürich Zugriffsstatistik')
-intro = st.markdown(intro_text(30))
+header_col1, header_col2 = st.columns((0.7, 0.3), gap='medium')
+intro = header_col1.markdown(intro_text(30))
+header_col2.markdown(f"""
+    Quellen:
+    * [Metadatenkatalog]({METADATA_URL})
+    * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL})
+    * [Link Datensatz Metadatenkatalog]({STATISTICS_METADATA_URL})
+    * [Github-Repo]({GITHUB_URL})
+""")
 
-input_col1, input_col2 = st.columns(2, gap='medium')
-input_col1.subheader('Filter (generell)')
+container = st.container(border=True)
+input_col1, input_col2 = container.columns(2, gap='medium')
+input_col1.subheader('Filter')
 timespan = input_col1.slider(
     'Vergleich Zugriffszahlen (in Tagen)',
     1, 180, (30, 180),
 )
 intro.write(intro_text(timespan[0]))
 input_thresold_avg_long = input_col1.slider(
-    'Schwelle für durchschnittliche Zugriffe (letzte 180 Tage)',
+    f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
     1, 100, 1,
 )
 
-input_col2.subheader('Filter (Berechnung Edges)')
+input_col2.subheader('Filter Berechnung Edges')
 excl_keywords = input_col2.multiselect(
-    'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Datensätzen)',
+    'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Keywords zweier Datensätze)',
     list(available_keywords),
     list(DEFAULT_EXCLUDE_KEYWORDS),
 )
 input_bigger_than_similarity = input_col2.slider(
-    'Ähnlichkeitsschwelle zweier Datensätze anhand Keywords (0-1)',
+    'Erforderliche Ähnlichkeit für Darstellung des Edges (grösser als, Werte von 0 bis 1)',
     0.0, 1.0, 0.0,
     step=0.01,
 )
 input_scale = input_col2.slider(
-    'Skalierung des Graphen (je grösser, desto mehr Platz)',
+    'Skalierung des Graphen (je grösser, desto weiter liegen Nodes auseinander)',
     1_000, 30_000, 10_000,
     step=1_000,
 )
 
-fig, df_stat_out = main(
+fig, df_stat_out, cnt_nodes, cnt_edges = main(
     data_stat=data_stat,
     data_meta=data_meta,
     avg_long_days=timespan[1],
@@ -271,6 +310,12 @@ fig, df_stat_out = main(
     scale=input_scale,
 )
 st.subheader('Graph')
+annotated_text(
+    (f'{cnt_nodes}', 'Nodes'),
+    ' ',
+    (f'{cnt_edges}', 'Edges'),
+)
+
 _html = fig.to_html_standalone()
 st.components.v1.html(_html, height=1208)
 st.subheader('Zugriffsstatistik')
