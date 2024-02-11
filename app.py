@@ -249,7 +249,7 @@ def main(
 def intro_text(days_short: int = 30):
     return f"""
         Diese Applikation visualisiert die Zugriffsstatistik der OGD-Datensätze
-        des [Metadatenkatalogs des Kantons Zürich](https://www.web.statistik.zh.ch/ogd/datenkatalog/standalone/).
+        des [Metadatenkatalogs des Kantons Zürich]({OGD_METADATA_URL}).
         Dabei wird ein Graph generiert, der die Ähnlichkeit zweier Datensätze darstellt.
         Die Zugriffsstatistik bildet Zugriffe (Klicks) auf den Datenkatalog des Kantons Zürich ab. Nicht enthalten
         sind direkte File-Zugriffe oder Zugriffe von anderen Katalogen wie [opendata.swiss](http://opendata.swiss).
