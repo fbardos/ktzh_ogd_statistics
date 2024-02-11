@@ -269,7 +269,8 @@ header_col1, header_col2 = st.columns((0.7, 0.3), gap='medium')
 intro = header_col1.markdown(intro_text(30))
 header_col2.markdown(f"""
     Quellen:
-    * [Metadatenkatalog]({METADATA_URL})
+    * [OGD Metadatenkatalog Kanton Zürich]({OGD_METADATA_URL})
+    * [Datensätze Metadatenkatalog (API)]({METADATA_URL})
     * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL})
     * [Link Datensatz Metadatenkatalog]({STATISTICS_METADATA_URL})
     * [Github-Repo]({GITHUB_URL})
