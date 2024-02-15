@@ -29,6 +29,9 @@ response_meta = requests.get(METADATA_URL).json()
 data_meta = pd.DataFrame.from_dict(response_meta['dataset'])
 data_meta = data_meta[['identifier', 'title', 'description', 'keyword', 'publisher']]
 available_keywords = set(itertools.chain.from_iterable(data_meta[data_meta['keyword'].notnull()]['keyword']))
+data_meta['id'] = data_meta['identifier'].str.extract(r'(\d+)@.*').astype(int)
+data_meta['publisher'] = data_meta.apply(lambda x: x['publisher'][0], axis=1)
+available_orgs = sorted(data_meta['publisher'].unique())
 
 def main(
     data_stat: pd.DataFrame,
@@ -36,6 +39,8 @@ def main(
     avg_short_days: int = 30,
     avg_long_days: int = 180,
     exclude_keywords: set = DEFAULT_EXCLUDE_KEYWORDS,
+    exclude_orgs: list = [],
+    include_orgs: list = [],
     bigger_than_similarity: float = 0.0,
     threshold_avg_long: int = 1,
     scale: int = 10_000,
@@ -49,8 +54,10 @@ def main(
     EXCLUDE_KEYWORDS = exclude_keywords
     
     prog = st.progress(0, text='Ausführen der grundlegenden Datentransformation...')
-    data_meta['id'] = data_meta['identifier'].str.extract(r'(\d+)@.*').astype(int)
-    data_meta['publisher'] = data_meta.apply(lambda x: x['publisher'][0], axis=1)
+    if len(exclude_orgs) > 0:
+        data_meta = data_meta[~data_meta['publisher'].isin(exclude_orgs)]
+    if len(include_orgs) > 0:
+        data_meta = data_meta[data_meta['publisher'].isin(include_orgs)]
     logging.info('Calculate statics...')
     prog.progress(0.1, text='Do basic table operations...')
     df = data_meta.merge(data_stat, left_on='id', right_on='datensatz_id', how='outer')
@@ -288,11 +295,19 @@ input_thresold_avg_long = input_col1.slider(
     f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
     1, 100, 1,
 )
+input_exclude_orgs = input_col1.multiselect(
+    'Organisationen exkludieren:',
+    available_orgs,
+)
+input_include_orgs = input_col1.multiselect(
+    'Organisationen auswählen:',
+    available_orgs,
+)
 
 input_col2.subheader('Filter Berechnung Edges')
 excl_keywords = input_col2.multiselect(
     'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Keywords zweier Datensätze)',
-    list(available_keywords),
+    sorted(available_keywords),
     list(DEFAULT_EXCLUDE_KEYWORDS),
 )
 input_bigger_than_similarity = input_col2.slider(
@@ -314,6 +329,8 @@ fig, df_stat_out, cnt_nodes, cnt_edges = main(
     exclude_keywords=set(excl_keywords),
     bigger_than_similarity=input_bigger_than_similarity,
     threshold_avg_long=input_thresold_avg_long,
+    exclude_orgs=input_exclude_orgs,
+    include_orgs=input_include_orgs,
     scale=input_scale,
 )
 st.subheader('Graph')
