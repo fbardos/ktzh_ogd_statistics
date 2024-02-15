@@ -199,7 +199,7 @@ def main(
     logging.info('Calculate Graph layout...')
     prog.progress(0.8, text='Simluation des Graphen in 200 iterationen...')
     # pos = nx.spring_layout(G, k=0.04, iterations=200, scale=10_000, seed=42)
-    pos = nx.spring_layout(G, iterations=200, scale=scale, seed=42)
+    pos = nx.spring_layout(G, iterations=200, center=(0, 0), scale=scale, seed=42)
     # Add coordinates as node annotations that are recognized by gravis
     for name, (x, y) in pos.items():
         node = G.nodes[name]
@@ -317,8 +317,8 @@ input_bigger_than_similarity = input_col2.slider(
 )
 input_scale = input_col2.slider(
     'Skalierung des Graphen (je grösser, desto weiter liegen Nodes auseinander)',
-    1_000, 30_000, 10_000,
-    step=1_000,
+    500, 30_000, 10_000,
+    step=500,
 )
 
 fig, df_stat_out, cnt_nodes, cnt_edges = main(
