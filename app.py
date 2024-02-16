@@ -1,6 +1,5 @@
 import itertools
 import logging
-from collections import Counter
 from difflib import SequenceMatcher
 
 import gravis as gv
@@ -32,6 +31,31 @@ available_keywords = set(itertools.chain.from_iterable(data_meta[data_meta['keyw
 data_meta['id'] = data_meta['identifier'].str.extract(r'(\d+)@.*').astype(int)
 data_meta['publisher'] = data_meta.apply(lambda x: x['publisher'][0], axis=1)
 available_orgs = sorted(data_meta['publisher'].unique())
+
+
+@st.cache_data(ttl=60*60*2)  # Cache for 2 hours
+def compare_keywords(
+    data: pd.DataFrame,
+    exclude_keywords: set,
+    similarity: float,
+    threshold_long: int,
+    weight_factor: float,
+):
+    # Alternative approach for comparing similarity (much faster than iterrows)
+    G = nx.Graph()
+    df_cartesian = data.merge(data, how='cross', suffixes=('_x', '_y'))
+    df_cartesian = df_cartesian[df_cartesian['id_x'] < df_cartesian['id_y']]
+    df_cartesian['keyword_x'] = df_cartesian['keyword_x'].apply(set)
+    df_cartesian['keyword_y'] = df_cartesian['keyword_y'].apply(set)
+    df_cartesian['_sub_keyword_x'] = df_cartesian['keyword_x'] - exclude_keywords
+    df_cartesian['_sub_keyword_y'] = df_cartesian['keyword_y'] - exclude_keywords
+    df_cartesian['_sub_keyword_x'] = df_cartesian['_sub_keyword_x'].apply(list)
+    df_cartesian['_sub_keyword_y'] = df_cartesian['_sub_keyword_y'].apply(list)
+    df_cartesian['weight'] = df_cartesian.apply(lambda x: SequenceMatcher(None, x['_sub_keyword_x'], x['_sub_keyword_y']).ratio(), axis=1)
+    df_cartesian = df_cartesian[(df_cartesian['weight'] > similarity) & (df_cartesian['avg_long_x'] >= threshold_long) & (df_cartesian['avg_long_y'] >= threshold_long)]
+    df_cartesian.apply(lambda x: G.add_edge(x['id_x'], x['id_y'], weight=x['weight']*weight_factor), axis=1)
+    return G
+
 
 def main(
     data_stat: pd.DataFrame,
@@ -91,7 +115,6 @@ def main(
         .assign(avg_ratio=lambda x: x['avg_short'] / x['avg_long'])
         .assign(avg_ratio=lambda x: x['avg_ratio'].fillna(1))
         .assign(avg_ratio_normalized=lambda x: _normalized_colors(x['avg_ratio']))
-        # .assign(avg_ratio_color=lambda x: mpl.colors.rgb2hex(_colors(x['avg_ratio_normalized'])))
         .assign(avg_short=lambda x: x['avg_short'].fillna(0))
         .assign(avg_long=lambda x: x['avg_long'].fillna(0))
         .assign(keyword=lambda x: x['keyword'].fillna('').apply(list))
@@ -100,26 +123,14 @@ def main(
 
     # Building graph
     logging.info('Build graph...')
-    prog.progress(0.2, text='Keywords aller Datensätze werden miteinander verglichen...')
-    G = nx.Graph()
-    
-    # Alternative approach for comparing similarity (much faster than iterrows)
-    df_cartesian = data_meta.merge(data_meta, how='cross', suffixes=('_x', '_y'))
-    df_cartesian['keyword_x'] = df_cartesian['keyword_x'].apply(set)
-    df_cartesian['keyword_y'] = df_cartesian['keyword_y'].apply(set)
-    prog.progress(0.4, text='Häufig verwendete Keywords werden gefiltert...')
-    df_cartesian['_sub_keyword_x'] = df_cartesian['keyword_x'] - EXCLUDE_KEYWORDS
-    df_cartesian['_sub_keyword_y'] = df_cartesian['keyword_y'] - EXCLUDE_KEYWORDS
-    df_cartesian['_sub_keyword_x'] = df_cartesian['_sub_keyword_x'].apply(list)
-    df_cartesian['_sub_keyword_y'] = df_cartesian['_sub_keyword_y'].apply(list)
-    prog.progress(0.5, text='Ähnlichkeit der Datensätze wird berechnet...')
-    df_cartesian = df_cartesian[df_cartesian['id_x'] < df_cartesian['id_y']]
-    df_cartesian['weight'] = df_cartesian.apply(lambda x: SequenceMatcher(None, x['_sub_keyword_x'], x['_sub_keyword_y']).ratio(), axis=1)
-    df_cartesian = df_cartesian[(df_cartesian['weight'] > BIGGER_THAN_SIMILARITY) & (df_cartesian['avg_long_x'] >= THRESHOLD_AVG_LONG) & (df_cartesian['avg_long_y'] >= THRESHOLD_AVG_LONG)]
-    prog.progress(0.6, text='Edges werden zum Graph hinzugefügt...')
-    df_cartesian.apply(lambda x: G.add_edge(x['id_x'], x['id_y'], weight=x['weight']*2), axis=1)
-    logging.info(f'Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges')
-
+    prog.progress(0.4, text='Keywords aller Datensätze werden miteinander verglichen...')
+    G = compare_keywords(
+        data=data_meta,
+        exclude_keywords=EXCLUDE_KEYWORDS,
+        similarity=BIGGER_THAN_SIMILARITY,
+        threshold_long=THRESHOLD_AVG_LONG,
+        weight_factor=weight_factor,
+    )
 
     # Add info to nodes
     # Normalize node size (min value = 2, multiply by 30)
