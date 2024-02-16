@@ -1,6 +1,7 @@
 import itertools
 import logging
 from difflib import SequenceMatcher
+from typing import Optional
 
 import gravis as gv
 import matplotlib as mpl
@@ -9,15 +10,13 @@ import pandas as pd
 import requests
 import seaborn as sns
 import streamlit as st
-
 from annotated_text import annotated_text
-
 
 STATISTICS_URL = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005024.csv'
 STATISTICS_METADATA_URL = 'https://opendata.swiss/de/dataset/web-analytics-des-datenkatalogs-des-kantons-zurich/resource/c72eda06-befb-4b21-bc39-75340f7546cb'
 METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/daten/zhweb.json'
 GITHUB_URL = 'https://github.com/fbardos/ktzh_ogd_statistics'
-DEFAULT_EXCLUDE_KEYWORDS = {'ogd', 'kanton_zuerich', 'bezirke', 'gemeinden'}
+DEFAULT_EXCLUDE_KEYWORDS = {'ogd', 'kanton_zuerich', 'bezirke', 'gemeinden', 'statistik.info'}
 OGD_METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/datenkatalog/standalone/'
 
 
@@ -67,6 +66,8 @@ def main(
     include_orgs: list = [],
     bigger_than_similarity: float = 0.0,
     threshold_avg_long: int = 1,
+    weight_factor: float = 2.0,
+    spring_k: Optional[float] = None,
     scale: int = 10_000,
 ):
     
@@ -161,16 +162,6 @@ def main(
     # Generate metadata for gravis
     prog.progress(0.7, text=f'Der Graph hat {G.number_of_nodes()} Nodes und {G.number_of_edges()} Udges. Generiere Metadaten...')
     _hover = {}
-    # for _, row in data_meta.iterrows():
-        # _hover[row['id']] = (
-            # f"<b>{row['title']}</b><br>"
-            # f"<i>{row['description']}</i><br><br>"
-            # f"ID: {row['id']}<br>"
-            # f"Organisation: {row['publisher']}<br>"
-            # f"Klicks (letzte {AVG_SHORT_DAYS} Tage): {int(row['avg_short'])}<br>"
-            # f"Klicks (letzte {AVG_LONG_DAYS} Tage, in Relation zu {AVG_SHORT_DAYS} Tagen): {round(row['avg_long'], 1)}<br>"
-            # f"Keywords: {', '.join(row['keyword'])}"
-        # )
     for _, row in data_meta.iterrows():
         _hover[row['id']] = (
             f"<b>{row['title']}</b><br>"
@@ -209,9 +200,7 @@ def main(
     logging.info(f'Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges')
     logging.info('Calculate Graph layout...')
     prog.progress(0.8, text='Simluation des Graphen in 200 iterationen...')
-    # pos = nx.spring_layout(G, k=0.04, iterations=200, scale=10_000, seed=42)
-    pos = nx.spring_layout(G, iterations=200, center=(0, 0), scale=scale, seed=42)
-    # Add coordinates as node annotations that are recognized by gravis
+    pos = nx.spring_layout(G, k=spring_k, iterations=200, center=(0, 0), scale=scale, seed=42)
     for name, (x, y) in pos.items():
         node = G.nodes[name]
         node['x'] = x
@@ -239,6 +228,7 @@ def main(
         edge_curvature=0.3,
         edge_size_data_source='weight',
         node_hover_tooltip=True,
+        zoom_factor=0.75,
         
     )
     prog.progress(0.95, text='Berechnen Organisationsstatistiken...')
@@ -301,11 +291,6 @@ timespan = input_col1.slider(
     'Vergleich Zugriffszahlen (in Tagen)',
     1, 180, (30, 180),
 )
-intro.write(intro_text(timespan[0]))
-input_thresold_avg_long = input_col1.slider(
-    f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
-    1, 100, 1,
-)
 input_exclude_orgs = input_col1.multiselect(
     'Organisationen exkludieren:',
     available_orgs,
@@ -315,22 +300,36 @@ input_include_orgs = input_col1.multiselect(
     available_orgs,
 )
 
-input_col2.subheader('Filter Berechnung Edges')
+input_col2.subheader('Generierung Graph')
+intro.write(intro_text(timespan[0]))
+input_thresold_avg_long = input_col2.slider(
+    f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
+    1, 100, 1,
+)
 excl_keywords = input_col2.multiselect(
     'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Keywords zweier Datensätze)',
     sorted(available_keywords),
     list(DEFAULT_EXCLUDE_KEYWORDS),
 )
-input_bigger_than_similarity = input_col2.slider(
-    'Erforderliche Ähnlichkeit für Darstellung des Edges (grösser als, Werte von 0 bis 1)',
-    0.0, 1.0, 0.0,
-    step=0.01,
-)
-input_scale = input_col2.slider(
-    'Skalierung des Graphen (je grösser, desto weiter liegen Nodes auseinander)',
-    500, 30_000, 10_000,
-    step=500,
-)
+with input_col2.expander('Advanced') as exp:
+
+    input_bigger_than_similarity = st.slider(
+        'Erforderliche Ähnlichkeit für Darstellung des Edges (grösser als, Werte von 0 bis 1)',
+        0.0, 1.0, 0.0,
+        step=0.01,
+    )
+    input_scale = st.slider(
+        'Skalierung des Graphen (je grösser, desto grösser wird die Karte)',
+        500, 30_000, 10_000,
+        step=500,
+    )
+    input_spring_k = st.number_input(
+        'Optimale Distanz zwischen Nodes (Werte zwischen 0.01 und 1). Je grösser, desto weiter liegen Nodes auseinander. Default: `1 / sqrt(anzahl_nodes)`',
+        min_value=0.01,
+        max_value=1.0,
+        value=None,
+        # placeholder='Default = 1 / sqrt(anzahl_nodes)',
+    )
 
 fig, df_stat_out, cnt_nodes, cnt_edges = main(
     data_stat=data_stat,
@@ -342,8 +341,10 @@ fig, df_stat_out, cnt_nodes, cnt_edges = main(
     threshold_avg_long=input_thresold_avg_long,
     exclude_orgs=input_exclude_orgs,
     include_orgs=input_include_orgs,
+    spring_k=input_spring_k,
     scale=input_scale,
 )
+
 st.subheader('Graph')
 annotated_text(
     (f'{cnt_nodes}', 'Nodes'),
