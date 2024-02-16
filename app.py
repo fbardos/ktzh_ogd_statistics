@@ -232,7 +232,7 @@ def main(
         
     )
     prog.progress(0.95, text='Berechnen Organisationsstatistiken...')
-    df_stat = (
+    df_stat_org = (
         data_meta[['publisher', 'publisher_color', 'avg_short']]
         .groupby(['publisher', 'publisher_color'])
         .agg(
@@ -249,9 +249,26 @@ def main(
             'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
         })
     )
+    df_stat_dataset = (
+        data_meta[['title', 'identifier', 'publisher', 'avg_short']]
+        .assign(url=lambda x: OGD_METADATA_URL + 'datasets/' + x["identifier"], axis=1)
+        .drop(columns=['identifier'])
+        .groupby(['title', 'url', 'publisher'])
+        .agg(
+            sum=('avg_short', 'sum'),
+        )
+        .reset_index()
+        .sort_values(by='sum', ascending=False)
+        .assign(sum=lambda x: x['sum'].astype(int))
+        .rename(columns={
+            'title': 'Datensatz',
+            'publisher': 'Organisation',
+            'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
+        })
+    )
     
     prog.empty()
-    return fig, df_stat, G.number_of_nodes(), G.number_of_edges()
+    return fig, df_stat_org, df_stat_dataset, G.number_of_nodes(), G.number_of_edges()
 
 
 def intro_text(days_short: int = 30):
@@ -331,7 +348,7 @@ with input_col2.expander('Advanced') as exp:
         # placeholder='Default = 1 / sqrt(anzahl_nodes)',
     )
 
-fig, df_stat_out, cnt_nodes, cnt_edges = main(
+fig, df_stat_out_org, df_stat_out_dataset, cnt_nodes, cnt_edges = main(
     data_stat=data_stat,
     data_meta=data_meta,
     avg_long_days=timespan[1],
@@ -354,12 +371,23 @@ annotated_text(
 
 _html = fig.to_html_standalone()
 st.components.v1.html(_html, height=1208)
-st.subheader('Zugriffsstatistik')
+st.subheader('Zugriffsstatistik Organisation')
 st.markdown(
     f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der publizierenden Organisationen der letzten'
     f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
 )
 st.dataframe(
-    df_stat_out.style.applymap(lambda col: f"background-color: {col}", subset=['Farbe']),
+    df_stat_out_org.style.applymap(lambda col: f"background-color: {col}", subset=['Farbe']),
+    hide_index=True
+)
+st.subheader('Zugriffsstatistik Datensatz')
+st.dataframe(
+    df_stat_out_dataset,
+    column_config=dict(
+        url=st.column_config.LinkColumn(
+            'URL',
+            display_text='Link'
+        ),
+    ),
     hide_index=True
 )
