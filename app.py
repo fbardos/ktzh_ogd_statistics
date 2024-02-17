@@ -69,7 +69,7 @@ def main(
     threshold_avg_long: int = 1,
     weight_factor: float = 2.0,
     spring_k: Optional[float] = None,
-    scale: int = 10_000,
+    scale: Optional[float] = None,
 ):
     
     STATISTICS_COL = 'anzahl_klicks'
@@ -203,6 +203,13 @@ def main(
     logging.info(f'Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges')
     logging.info('Calculate Graph layout...')
     prog.progress(0.8, text='Simluation des Graphen in 200 iterationen...')
+
+    # Set defaults for empty k or scale
+    if spring_k is None:
+        spring_k = 1 / G.number_of_nodes()**(1/3)
+    if scale is None:
+        scale = min((G.number_of_nodes()/2)**2+200, 20_000)
+
     pos = nx.spring_layout(G, k=spring_k, iterations=200, center=(0, 0), scale=scale, seed=42)
     for name, (x, y) in pos.items():
         node = G.nodes[name]
@@ -342,13 +349,14 @@ with input_col2.expander('Advanced') as exp:
         0.0, 1.0, 0.0,
         step=0.01,
     )
-    input_scale = st.slider(
-        'Skalierung des Graphen (je grösser, desto grösser wird die Karte)',
-        500, 30_000, 10_000,
-        step=500,
+    input_scale = st.number_input(
+        'Skalierung des Graphen (je grösser, desto grösser wird die Karte). Werte zw. 200 und 30000. Default `(anzahl_nodes/2)**2+200`',
+        min_value=200,
+        max_value=30_000,
+        value=None,
     )
     input_spring_k = st.number_input(
-        'Optimale Distanz zwischen Nodes (Werte zwischen 0.01 und 1). Je grösser, desto weiter liegen Nodes auseinander. Default: `1 / sqrt(anzahl_nodes)`',
+        'Optimale Distanz zwischen Nodes (Werte zwischen 0.01 und 1). Je grösser, desto weiter liegen Nodes auseinander. Default: `1/anzahl_nodes**(1/3)`',
         min_value=0.01,
         max_value=1.0,
         value=None,
