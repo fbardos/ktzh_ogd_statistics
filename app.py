@@ -64,6 +64,7 @@ def main(
     exclude_keywords: set = DEFAULT_EXCLUDE_KEYWORDS,
     exclude_orgs: list = [],
     include_orgs: list = [],
+    include_keywords: list = [],
     bigger_than_similarity: float = 0.0,
     threshold_avg_long: int = 1,
     weight_factor: float = 2.0,
@@ -83,6 +84,8 @@ def main(
         data_meta = data_meta[~data_meta['publisher'].isin(exclude_orgs)]
     if len(include_orgs) > 0:
         data_meta = data_meta[data_meta['publisher'].isin(include_orgs)]
+    if len(include_keywords) > 0:
+        data_meta = data_meta[data_meta['keyword'].fillna('').apply(list).apply(lambda val: any([k in val for k in include_keywords]))]
     logging.info('Calculate statics...')
     prog.progress(0.1, text='Do basic table operations...')
     df = data_meta.merge(data_stat, left_on='id', right_on='datensatz_id', how='outer')
@@ -316,6 +319,10 @@ input_include_orgs = input_col1.multiselect(
     'Organisationen auswählen:',
     available_orgs,
 )
+input_include_keywords = input_col1.multiselect(
+    'Keywords auswählen:',
+    sorted(available_keywords),
+)
 
 input_col2.subheader('Generierung Graph')
 intro.write(intro_text(timespan[0]))
@@ -358,6 +365,7 @@ fig, df_stat_out_org, df_stat_out_dataset, cnt_nodes, cnt_edges = main(
     threshold_avg_long=input_thresold_avg_long,
     exclude_orgs=input_exclude_orgs,
     include_orgs=input_include_orgs,
+    include_keywords=input_include_keywords,
     spring_k=input_spring_k,
     scale=input_scale,
 )
