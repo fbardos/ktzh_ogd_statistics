@@ -72,7 +72,8 @@ def main(
     scale: Optional[float] = None,
 ):
     
-    STATISTICS_COL = 'anzahl_klicks'
+    STATISTICS_KLICKS_COL = 'anzahl_klicks'
+    STATISTICS_VISITOR_COL = 'anzahl_besuchende'
     AVG_SHORT_DAYS = avg_short_days 
     AVG_LONG_DAYS = avg_long_days
     BIGGER_THAN_SIMILARITY = bigger_than_similarity
@@ -90,25 +91,42 @@ def main(
     prog.progress(0.1, text='Do basic table operations...')
     df = data_meta.merge(data_stat, left_on='id', right_on='datensatz_id', how='outer')
     df['diff_days'] = (pd.to_datetime('now') - pd.to_datetime(df['datum'])).dt.days
-    df_avg_short = (
-        df[df['diff_days'] <= AVG_SHORT_DAYS][['id', STATISTICS_COL]]
+    df_avg_klicks_short = (
+        df[df['diff_days'] <= AVG_SHORT_DAYS][['id', STATISTICS_KLICKS_COL]]
         .groupby('id')
         .sum()
         .reset_index()
-        .rename(columns={STATISTICS_COL: 'avg_short'})
+        .rename(columns={STATISTICS_KLICKS_COL: 'avg_short'})
     )
-    df_avg_long = (
-        df[df['diff_days'] <= AVG_LONG_DAYS][['id', STATISTICS_COL]]
+    df_avg_klicks_long = (
+        df[df['diff_days'] <= AVG_LONG_DAYS][['id', STATISTICS_KLICKS_COL]]
         .groupby('id')
         .sum()
         .reset_index()
-        .rename(columns={STATISTICS_COL: 'avg_long'})
+        .rename(columns={STATISTICS_KLICKS_COL: 'avg_long'})
         .assign(avg_long=lambda x: x['avg_long'] / (AVG_LONG_DAYS / AVG_SHORT_DAYS))
+    )
+    df_avg_visitor_short = (
+        df[df['diff_days'] <= AVG_SHORT_DAYS][['id', STATISTICS_VISITOR_COL]]
+        .groupby('id')
+        .sum()
+        .reset_index()
+        .rename(columns={STATISTICS_VISITOR_COL: 'avg_visitor_short'})
+    )
+    df_avg_visitor_long = (
+        df[df['diff_days'] <= AVG_LONG_DAYS][['id', STATISTICS_VISITOR_COL]]
+        .groupby('id')
+        .sum()
+        .reset_index()
+        .rename(columns={STATISTICS_VISITOR_COL: 'avg_visitor_long'})
+        .assign(avg_visitor_long=lambda x: x['avg_visitor_long'] / (AVG_LONG_DAYS / AVG_SHORT_DAYS))
     )
     data_meta = (
         data_meta
-        .merge(df_avg_short, on='id', how='left')
-        .merge(df_avg_long, on='id', how='left')
+        .merge(df_avg_klicks_short, on='id', how='left')
+        .merge(df_avg_klicks_long, on='id', how='left')
+        .merge(df_avg_visitor_short, on='id', how='left')
+        .merge(df_avg_visitor_long, on='id', how='left')
     )
     _normalized_colors = mpl.colors.Normalize(vmin=0, vmax=2, clip=True)
     _colors = sns.color_palette('coolwarm', as_cmap=True)
@@ -243,37 +261,43 @@ def main(
     )
     prog.progress(0.95, text='Berechnen Organisationsstatistiken...')
     df_stat_org = (
-        data_meta[['publisher', 'publisher_color', 'avg_short']]
+        data_meta[['publisher', 'publisher_color', 'avg_short', 'avg_visitor_short']]
         .groupby(['publisher', 'publisher_color'])
         .agg(
             size=('avg_short', 'size'),
             sum=('avg_short', 'sum'),
+            sum_v=('avg_visitor_short', 'sum'),
         )
         .reset_index()
         .sort_values(by='sum', ascending=False)
         .assign(sum=lambda x: x['sum'].astype(int))
+        .assign(sum_v=lambda x: x['sum_v'].astype(int))
         .rename(columns={
             'publisher': 'Organisation',
             'publisher_color': 'Farbe',
             'size': 'Anzahl Datensätze',
             'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
+            'sum_v': f'Besucher (letzte {AVG_SHORT_DAYS} Tage)',
         })
     )
     df_stat_dataset = (
-        data_meta[['title', 'identifier', 'publisher', 'avg_short']]
+        data_meta[['title', 'identifier', 'publisher', 'avg_short', 'avg_visitor_short']]
         .assign(url=lambda x: OGD_METADATA_URL + 'datasets/' + x["identifier"], axis=1)
         .drop(columns=['identifier'])
         .groupby(['title', 'url', 'publisher'])
         .agg(
             sum=('avg_short', 'sum'),
+            sum_v=('avg_visitor_short', 'sum'),
         )
         .reset_index()
         .sort_values(by='sum', ascending=False)
         .assign(sum=lambda x: x['sum'].astype(int))
+        .assign(sum_v=lambda x: x['sum_v'].astype(int))
         .rename(columns={
             'title': 'Datensatz',
             'publisher': 'Organisation',
             'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
+            'sum_v': f'Besucher (letzte {AVG_SHORT_DAYS} Tage)',
         })
     )
     
