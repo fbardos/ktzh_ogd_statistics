@@ -12,17 +12,56 @@ import seaborn as sns
 import streamlit as st
 from annotated_text import annotated_text
 
-STATISTICS_URL = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005024.csv'
-STATISTICS_METADATA_URL = 'https://opendata.swiss/de/dataset/web-analytics-des-datenkatalogs-des-kantons-zurich/resource/c72eda06-befb-4b21-bc39-75340f7546cb'
+
+STATISTICS_URL_DATASET = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005024.csv'
+STATISTICS_URL = 'https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00002522_00005043.csv'
+STATISTICS_METADATA_URL = 'https://opendata.swiss/de/dataset/web-analytics-des-datenkatalogs-des-kantons-zurich/resource/6af2b395-47ce-491c-9083-8cf58e67aca9'
 METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/daten/zhweb.json'
 GITHUB_URL = 'https://github.com/fbardos/ktzh_ogd_statistics'
 DEFAULT_EXCLUDE_KEYWORDS = {'ogd', 'kanton_zuerich', 'bezirke', 'gemeinden', 'statistik.info'}
 OGD_METADATA_URL = 'https://www.web.statistik.zh.ch/ogd/datenkatalog/standalone/'
+VALUE_COLUMNS = {
+    'anzahl_klicks_dataset': 'Klicks Datensatz',
+    'anzahl_besuchende_dataset': 'Besuchende Datensatz',
+    'anzahl_klicks': 'Klicks Ressourcen',
+    'anzahl_besuchende': 'Besuchende Ressourcen',
+    'anzahl_downloads': 'Downloads Files',
+}
 
 
-# Get basic data
+# Get basic data (for dataset and resource, then merge them)
 logging.info('Get data from KTZH metacatalogue...')
+data_stat_dataset = (
+    pd
+    .read_csv(STATISTICS_URL_DATASET)
+    .rename(columns={
+        'anzahl_klicks': 'anzahl_klicks_dataset',
+        'anzahl_besuchende': 'anzahl_besuchende_dataset'
+    })
+)
 data_stat = pd.read_csv(STATISTICS_URL)
+
+
+# Data regroup on level dataset (not resource)
+data_stat = (
+    data_stat[['datum', 'datensatz_id', 'publisher', 'datensatz_titel', 'anzahl_klicks', 'anzahl_besuchende', 'anzahl_downloads']]
+    .groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
+    .sum()
+    .reset_index()
+)
+data_stat['anzahl_downloads'] = data_stat['anzahl_downloads'].astype(int)
+
+
+# merge both dataframes and recalculate values, afterwards regroup
+data_stat = pd.concat([data_stat, data_stat_dataset], ignore_index=True)
+data_stat = (
+    data_stat
+    .groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
+    .sum()
+    .reset_index()
+)
+
+
 response_meta = requests.get(METADATA_URL).json()
 data_meta = pd.DataFrame.from_dict(response_meta['dataset'])
 data_meta = data_meta[['identifier', 'title', 'description', 'keyword', 'publisher']]
@@ -59,6 +98,7 @@ def compare_keywords(
 def main(
     data_stat: pd.DataFrame,
     data_meta: pd.DataFrame,
+    value_col: Optional[str],
     avg_short_days: int = 30,
     avg_long_days: int = 180,
     exclude_keywords: set = DEFAULT_EXCLUDE_KEYWORDS,
@@ -71,15 +111,19 @@ def main(
     spring_k: Optional[float] = None,
     scale: Optional[float] = None,
 ):
-    
-    STATISTICS_KLICKS_COL = 'anzahl_klicks'
-    STATISTICS_VISITOR_COL = 'anzahl_besuchende'
-    AVG_SHORT_DAYS = avg_short_days 
+
+    if value_col is None:
+        value_col = 'anzahl_klicks'
+
+    STATISTICS_VALUE_COL = value_col
+    AVG_SHORT_DAYS = avg_short_days
     AVG_LONG_DAYS = avg_long_days
     BIGGER_THAN_SIMILARITY = bigger_than_similarity
     THRESHOLD_AVG_LONG = threshold_avg_long
     EXCLUDE_KEYWORDS = exclude_keywords
-    
+
+    col_label = VALUE_COLUMNS[STATISTICS_VALUE_COL]
+
     prog = st.progress(0, text='Ausführen der grundlegenden Datentransformation...')
     if len(exclude_orgs) > 0:
         data_meta = data_meta[~data_meta['publisher'].isin(exclude_orgs)]
@@ -91,43 +135,34 @@ def main(
     prog.progress(0.1, text='Do basic table operations...')
     df = data_meta.merge(data_stat, left_on='id', right_on='datensatz_id', how='outer')
     df['diff_days'] = (pd.to_datetime('now') - pd.to_datetime(df['datum'])).dt.days
-    df_avg_klicks_short = (
-        df[df['diff_days'] <= AVG_SHORT_DAYS][['id', STATISTICS_KLICKS_COL]]
-        .groupby('id')
-        .sum()
-        .reset_index()
-        .rename(columns={STATISTICS_KLICKS_COL: 'avg_short'})
-    )
-    df_avg_klicks_long = (
-        df[df['diff_days'] <= AVG_LONG_DAYS][['id', STATISTICS_KLICKS_COL]]
-        .groupby('id')
-        .sum()
-        .reset_index()
-        .rename(columns={STATISTICS_KLICKS_COL: 'avg_long'})
-        .assign(avg_long=lambda x: x['avg_long'] / (AVG_LONG_DAYS / AVG_SHORT_DAYS))
-    )
-    df_avg_visitor_short = (
-        df[df['diff_days'] <= AVG_SHORT_DAYS][['id', STATISTICS_VISITOR_COL]]
-        .groupby('id')
-        .sum()
-        .reset_index()
-        .rename(columns={STATISTICS_VISITOR_COL: 'avg_visitor_short'})
-    )
-    df_avg_visitor_long = (
-        df[df['diff_days'] <= AVG_LONG_DAYS][['id', STATISTICS_VISITOR_COL]]
-        .groupby('id')
-        .sum()
-        .reset_index()
-        .rename(columns={STATISTICS_VISITOR_COL: 'avg_visitor_long'})
-        .assign(avg_visitor_long=lambda x: x['avg_visitor_long'] / (AVG_LONG_DAYS / AVG_SHORT_DAYS))
-    )
-    data_meta = (
-        data_meta
-        .merge(df_avg_klicks_short, on='id', how='left')
-        .merge(df_avg_klicks_long, on='id', how='left')
-        .merge(df_avg_visitor_short, on='id', how='left')
-        .merge(df_avg_visitor_long, on='id', how='left')
-    )
+
+    # Iterate over variables and calculate average values
+    for col_name in VALUE_COLUMNS.keys():
+        df_avg_short = (
+            df[df['diff_days'] <= AVG_SHORT_DAYS][['id', col_name]]
+            .groupby('id')
+            .sum()
+            .reset_index()
+            .rename(columns={col_name: f'avg_short__{col_name}'})
+        )
+        df_avg_long = (
+            df[df['diff_days'] <= AVG_LONG_DAYS][['id', col_name]]
+            .groupby('id')
+            .sum()
+            .reset_index()
+            .rename(columns={col_name: f'avg_long__{col_name}'})
+        )
+        df_avg_long[f'avg_long__{col_name}'] = df_avg_long[f'avg_long__{col_name}'] / (AVG_LONG_DAYS / AVG_SHORT_DAYS)
+        data_meta = (
+            data_meta
+            .merge(df_avg_short, on='id', how='left')
+            .merge(df_avg_long, on='id', how='left')
+        )
+
+    # Select data column in dataframe
+    data_meta['avg_short'] = data_meta[f'avg_short__{STATISTICS_VALUE_COL}']
+    data_meta['avg_long'] = data_meta[f'avg_long__{STATISTICS_VALUE_COL}']
+
     _normalized_colors = mpl.colors.Normalize(vmin=0, vmax=2, clip=True)
     _colors = sns.color_palette('coolwarm', as_cmap=True)
     _colors.set_under('#3b4cc0')
@@ -197,11 +232,11 @@ def main(
             f"<td>{row['publisher']}</td>"
             "</tr>"
             "<tr>"
-            f"<td><b>Klicks ({AVG_SHORT_DAYS} Tage)</b></td>"
+            f"<td><b>{col_label} ({AVG_SHORT_DAYS} Tage)</b></td>"
             f"<td>{int(row['avg_short'])} {'▲' if row['avg_short'] > row['avg_long'] else '▼'}</td>"
             "</tr>"
             "<tr>"
-            f"<td><b>Klicks ({AVG_LONG_DAYS} Tage, pro {AVG_SHORT_DAYS} Tage)</b></td>"
+            f"<td><b>{col_label} ({AVG_LONG_DAYS} Tage, pro {AVG_SHORT_DAYS} Tage)</b></td>"
             f"<td>{round(row['avg_long'], 1)}</td>"
             "</tr>"
             "</table>"
@@ -226,7 +261,10 @@ def main(
     if spring_k is None:
         spring_k = 1 / G.number_of_nodes()**(1/3)
     if scale is None:
-        scale = min((G.number_of_nodes()/2)**2+200, 20_000)
+
+        # Use a function from regression (quadratic) instead of previous approach:
+        # https://www.wolframalpha.com/input?i=quadratic+fit+%7B0%2C500%7D%2C%7B10%2C1000%7D%2C%7B254%2C14000%7D%2C%7B500%2C20000%7D
+        scale = max(0, min(20_000, -0.0580631 * G.number_of_nodes() ** 2 + 68.2061 * G.number_of_nodes() + 414.532))
 
     pos = nx.spring_layout(G, k=spring_k, iterations=200, center=(0, 0), scale=scale, seed=42)
     for name, (x, y) in pos.items():
@@ -246,7 +284,7 @@ def main(
     gjgf['graph']['metadata']['edge_opacity'] = 60
 
     fig = gv.d3(
-        gjgf, 
+        gjgf,
         graph_height=1200,
         show_menu=False,
         show_menu_toggle_button=False,
@@ -257,37 +295,65 @@ def main(
         edge_size_data_source='weight',
         node_hover_tooltip=True,
         zoom_factor=0.75,
-        
     )
     prog.progress(0.95, text='Berechnen Organisationsstatistiken...')
     df_stat_org = (
-        data_meta[['publisher', 'publisher_color', 'avg_short', 'avg_visitor_short']]
+        data_meta[[
+            'publisher',
+            'publisher_color',
+            'avg_short__anzahl_klicks_dataset',
+            'avg_short__anzahl_besuchende_dataset',
+            'avg_short__anzahl_klicks',
+            'avg_short__anzahl_besuchende',
+            'avg_short__anzahl_downloads'
+        ]]
         .groupby(['publisher', 'publisher_color'])
         .agg(
-            size=('avg_short', 'size'),
-            sum=('avg_short', 'sum'),
-            sum_v=('avg_visitor_short', 'sum'),
+            size=('avg_short__anzahl_klicks', 'size'),
+            sum_dk=('avg_short__anzahl_klicks_dataset', 'sum'),
+            sum_dv=('avg_short__anzahl_besuchende_dataset', 'sum'),
+            sum=('avg_short__anzahl_klicks', 'sum'),
+            sum_v=('avg_short__anzahl_besuchende', 'sum'),
+            sum_d=('avg_short__anzahl_downloads', 'sum'),
         )
         .reset_index()
         .sort_values(by='sum', ascending=False)
+        .assign(sum_dk=lambda x: x['sum_dk'].astype(int))
+        .assign(sum_dv=lambda x: x['sum_dv'].astype(int))
         .assign(sum=lambda x: x['sum'].astype(int))
         .assign(sum_v=lambda x: x['sum_v'].astype(int))
+        .assign(sum_d=lambda x: x['sum_d'].astype(int))
         .rename(columns={
             'publisher': 'Organisation',
             'publisher_color': 'Farbe',
             'size': 'Anzahl Datensätze',
-            'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
-            'sum_v': f'Besucher (letzte {AVG_SHORT_DAYS} Tage)',
+            'sum_dk': f'Klicks Datensatz',
+            'sum_dv': f'Besuchende Datensatz',
+            'sum': f'Klicks Ressourcen',
+            'sum_v': f'Besuchende Ressourcen',
+            'sum_d': f'Downloads Ressourcen',
         })
     )
     df_stat_dataset = (
-        data_meta[['title', 'identifier', 'publisher', 'avg_short', 'avg_visitor_short']]
+        data_meta[[
+            'title',
+            'identifier',
+            'publisher',
+            'avg_short__anzahl_klicks_dataset',
+            'avg_short__anzahl_besuchende_dataset',
+            'avg_short__anzahl_klicks',
+            'avg_short__anzahl_besuchende',
+            'avg_short__anzahl_downloads'
+        ]]
         .assign(url=lambda x: OGD_METADATA_URL + 'datasets/' + x["identifier"], axis=1)
         .drop(columns=['identifier'])
         .groupby(['title', 'url', 'publisher'])
         .agg(
-            sum=('avg_short', 'sum'),
-            sum_v=('avg_visitor_short', 'sum'),
+            sum_dk=('avg_short__anzahl_klicks_dataset', 'sum'),
+            sum_dv=('avg_short__anzahl_besuchende_dataset', 'sum'),
+            sum=('avg_short__anzahl_klicks', 'sum'),
+            sum_v=('avg_short__anzahl_besuchende', 'sum'),
+            sum_d=('avg_short__anzahl_downloads', 'sum'),
         )
         .reset_index()
         .sort_values(by='sum', ascending=False)
@@ -296,11 +362,14 @@ def main(
         .rename(columns={
             'title': 'Datensatz',
             'publisher': 'Organisation',
-            'sum': f'Klicks (letzte {AVG_SHORT_DAYS} Tage)',
-            'sum_v': f'Besucher (letzte {AVG_SHORT_DAYS} Tage)',
+            'sum_dk': f'Klicks Datensatz',
+            'sum_dv': f'Besuchende Datensatz',
+            'sum': f'Klicks Ressourcen',
+            'sum_v': f'Besuchende Ressourcen',
+            'sum_d': f'Downloads Ressourcen',
         })
     )
-    
+
     prog.empty()
     return fig, df_stat_org, df_stat_dataset, G.number_of_nodes(), G.number_of_edges()
 
@@ -309,9 +378,10 @@ def intro_text(days_short: int = 30):
     return f"""
         Diese Applikation visualisiert die Zugriffsstatistik der OGD-Datensätze
         des [Metadatenkatalogs des Kantons Zürich]({OGD_METADATA_URL}).
-        Dabei wird ein Graph generiert, der die Ähnlichkeit zweier Datensätze darstellt.
-        Die Zugriffsstatistik bildet Zugriffe (Klicks) auf den Datenkatalog des Kantons Zürich ab. Nicht enthalten
-        sind direkte File-Zugriffe oder Zugriffe von anderen Katalogen wie [opendata.swiss](http://opendata.swiss).
+        Dabei wird ein Graph generiert, der jeweils die Ähnlichkeit zweier Datensätze darstellt.
+        Die Zugriffsstatistik bildet Zugriffe auf den Datenkatalog des Kantons Zürich ab, sowohl für Ressourcen als auch für Datensätze.
+        Als Zugriffe können Klicks (Seitenaufrufe), Besucher oder Downloads ausgewählt werden.
+        Nicht enthalten Zugriffe auf anderen OGD-Katalogen wie [opendata.swiss](http://opendata.swiss).
 
         * Verwenden zwei Datensätze ähnliche Keywords, dann stehen sie näher beeinander (Spring Layout).
         * Die **Grösse der Nodes** repräsentiert die Anzahl der Zugriffe der letzten `{days_short}` Tage.
@@ -319,7 +389,7 @@ def intro_text(days_short: int = 30):
         * Die **Schriftfarbe der Nodes** gibt die Organisation an, die den Datensatz publiziert hat.
         * Die **Dicke der Edges** repräsentiert die Ähnlichkeit der Keywords zweier Datensätze.
     """
-    
+
 
 logging.basicConfig(level=logging.INFO)
 st.set_page_config(layout="wide")
@@ -330,7 +400,8 @@ header_col2.markdown(f"""
     Quellen:
     * [OGD Metadatenkatalog Kanton Zürich]({OGD_METADATA_URL})
     * [Datensätze Metadatenkatalog (API)]({METADATA_URL})
-    * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL})
+    * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL_DATASET})
+    * [Zugriffs-Statistik (Ebene Resource)]({STATISTICS_URL})
     * [Link Datensatz Metadatenkatalog]({STATISTICS_METADATA_URL})
     * [Github-Repo]({GITHUB_URL})
 """)
@@ -338,6 +409,11 @@ header_col2.markdown(f"""
 container = st.container(border=True)
 input_col1, input_col2 = container.columns(2, gap='medium')
 input_col1.subheader('Filter')
+input_value_col = input_col1.radio(
+    label='Anzuzeigende Werte',
+    options=list(VALUE_COLUMNS.keys()),
+    format_func=lambda x: VALUE_COLUMNS[x],
+)
 timespan = input_col1.slider(
     'Vergleich Zugriffszahlen (in Tagen)',
     1, 180, (30, 180),
@@ -374,7 +450,7 @@ with input_col2.expander('Advanced') as exp:
         step=0.01,
     )
     input_scale = st.number_input(
-        'Skalierung des Graphen (je grösser, desto grösser wird die Karte). Werte zw. 200 und 30000. Default `(anzahl_nodes/2)**2+200`',
+        'Skalierung des Graphen (je grösser, desto grösser wird die Karte). Werte zw. 200 und 30000. Default `-0.0580631 x^2 + 68.2061 x + 414.532`',
         min_value=200,
         max_value=30_000,
         value=None,
@@ -384,12 +460,12 @@ with input_col2.expander('Advanced') as exp:
         min_value=0.01,
         max_value=1.0,
         value=None,
-        # placeholder='Default = 1 / sqrt(anzahl_nodes)',
     )
 
 fig, df_stat_out_org, df_stat_out_dataset, cnt_nodes, cnt_edges = main(
     data_stat=data_stat,
     data_meta=data_meta,
+    value_col=input_value_col,
     avg_long_days=timespan[1],
     avg_short_days=timespan[0],
     exclude_keywords=set(excl_keywords),
@@ -421,6 +497,10 @@ st.dataframe(
     hide_index=True
 )
 st.subheader('Zugriffsstatistik Datensatz')
+st.markdown(
+    f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der einzelnen Datensätze der letzten'
+    f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
+)
 st.dataframe(
     df_stat_out_dataset,
     column_config=dict(
