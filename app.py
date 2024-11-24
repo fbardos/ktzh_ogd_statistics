@@ -100,7 +100,7 @@ def main(
     data_meta: pd.DataFrame,
     value_col: Optional[str],
     avg_short_days: int = 30,
-    avg_long_days: int = 180,
+    avg_long_days: int = 360,
     exclude_keywords: set = DEFAULT_EXCLUDE_KEYWORDS,
     exclude_orgs: list = [],
     include_orgs: list = [],
@@ -416,7 +416,7 @@ input_value_col = input_col1.radio(
 )
 timespan = input_col1.slider(
     'Vergleich Zugriffszahlen (in Tagen)',
-    1, 180, (30, 180),
+    1, 360, (30, 180),
 )
 input_exclude_orgs = input_col1.multiselect(
     'Organisationen exkludieren:',
