@@ -38,7 +38,6 @@ VALUE_COLUMNS = {
 }
 
 
-@st.cache_data(ttl=60 * 60 * 2)  # Cache for 2 hours
 def compare_keywords(
     data: pd.DataFrame,
     exclude_keywords: set,
@@ -74,7 +73,7 @@ def compare_keywords(
     return G
 
 
-def main(
+def main_calc(
     data_stat: pd.DataFrame,
     data_meta: pd.DataFrame,
     value_col: Optional[str],
@@ -403,182 +402,181 @@ def intro_text(days_short: int = 30):
     """
 
 
-if __name__ == '__main__':
-    # Get basic data (for dataset and resource, then merge them)
-    logging.info('Get data from KTZH metacatalogue...')
-    data_stat_dataset = pd.read_csv(STATISTICS_URL_DATASET).rename(
-        columns={
-            'anzahl_klicks': 'anzahl_klicks_dataset',
-            'anzahl_besuchende': 'anzahl_besuchende_dataset',
-        }
-    )
-    data_stat = pd.read_csv(STATISTICS_URL)
+# Get basic data (for dataset and resource, then merge them)
+logging.info('Get data from KTZH metacatalogue...')
+data_stat_dataset = pd.read_csv(STATISTICS_URL_DATASET).rename(
+    columns={
+        'anzahl_klicks': 'anzahl_klicks_dataset',
+        'anzahl_besuchende': 'anzahl_besuchende_dataset',
+    }
+)
+data_stat = pd.read_csv(STATISTICS_URL)
 
-    # Data regroup on level dataset (not resource)
-    data_stat = (
-        data_stat[
-            [
-                'datum',
-                'datensatz_id',
-                'publisher',
-                'datensatz_titel',
-                'anzahl_klicks',
-                'anzahl_besuchende',
-                'anzahl_downloads',
-            ]
+# Data regroup on level dataset (not resource)
+data_stat = (
+    data_stat[
+        [
+            'datum',
+            'datensatz_id',
+            'publisher',
+            'datensatz_titel',
+            'anzahl_klicks',
+            'anzahl_besuchende',
+            'anzahl_downloads',
         ]
-        .groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
-        .sum()
-        .reset_index()
-    )
-    data_stat['anzahl_downloads'] = data_stat['anzahl_downloads'].astype(int)
-
-    # merge both dataframes and recalculate values, afterwards regroup
-    data_stat = pd.concat([data_stat, data_stat_dataset], ignore_index=True)
-    data_stat = (
-        data_stat.groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
-        .sum()
-        .reset_index()
-    )
-
-    response_meta = requests.get(METADATA_URL).json()
-    data_meta = pd.DataFrame.from_dict(response_meta['dataset'])
-    data_meta = data_meta[
-        ['identifier', 'title', 'description', 'keyword', 'publisher']
     ]
-    available_keywords = set(
-        itertools.chain.from_iterable(
-            data_meta[data_meta['keyword'].notnull()]['keyword']
-        )
-    )
-    data_meta['id'] = data_meta['identifier'].str.extract(r'(\d+)@.*').astype(int)
-    data_meta['publisher'] = data_meta.apply(lambda x: x['publisher'][0], axis=1)
-    available_orgs = sorted(data_meta['publisher'].unique())
+    .groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
+    .sum()
+    .reset_index()
+)
+data_stat['anzahl_downloads'] = data_stat['anzahl_downloads'].astype(int)
 
-    logging.basicConfig(level=logging.INFO)
-    st.set_page_config(layout="wide")
-    st.title('OGD Kanton Zürich Zugriffsstatistik')
-    header_col1, header_col2 = st.columns((0.7, 0.3), gap='medium')
-    intro = header_col1.markdown(intro_text(30))
-    header_col2.markdown(
-        f"""
-        Quellen:
-        * [OGD Metadatenkatalog Kanton Zürich]({OGD_METADATA_URL})
-        * [Datensätze Metadatenkatalog (API)]({METADATA_URL})
-        * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL_DATASET})
-        * [Zugriffs-Statistik (Ebene Resource)]({STATISTICS_URL})
-        * [Link Datensatz Metadatenkatalog]({STATISTICS_METADATA_URL})
-        * [Github-Repo]({GITHUB_URL})
-    """
-    )
+# merge both dataframes and recalculate values, afterwards regroup
+data_stat = pd.concat([data_stat, data_stat_dataset], ignore_index=True)
+data_stat = (
+    data_stat.groupby(['datum', 'datensatz_id', 'publisher', 'datensatz_titel'])
+    .sum()
+    .reset_index()
+)
 
-    container = st.container(border=True)
-    input_col1, input_col2 = container.columns(2, gap='medium')
-    input_col1.subheader('Filter')
-    input_value_col = input_col1.radio(
-        label='Anzuzeigende Werte',
-        options=list(VALUE_COLUMNS.keys()),
-        format_func=lambda x: VALUE_COLUMNS[x],
+response_meta = requests.get(METADATA_URL).json()
+data_meta = pd.DataFrame.from_dict(response_meta['dataset'])
+data_meta = data_meta[
+    ['identifier', 'title', 'description', 'keyword', 'publisher']
+]
+available_keywords = set(
+    itertools.chain.from_iterable(
+        data_meta[data_meta['keyword'].notnull()]['keyword']
     )
-    timespan = input_col1.slider(
-        'Vergleich Zugriffszahlen (in Tagen)',
-        1,
-        360,
-        (30, 180),
-    )
-    input_exclude_orgs = input_col1.multiselect(
-        'Organisationen exkludieren:',
-        available_orgs,
-    )
-    input_include_orgs = input_col1.multiselect(
-        'Organisationen auswählen:',
-        available_orgs,
-    )
-    input_include_keywords = input_col1.multiselect(
-        'Keywords auswählen:',
-        sorted(available_keywords),
-    )
+)
+data_meta['id'] = data_meta['identifier'].str.extract(r'(\d+)@.*').astype(int)
+data_meta['publisher'] = data_meta.apply(lambda x: x['publisher'][0], axis=1)
+available_orgs = sorted(data_meta['publisher'].unique())
 
-    input_col2.subheader('Generierung Graph')
-    intro.write(intro_text(timespan[0]))
-    input_thresold_avg_long = input_col2.slider(
-        f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
-        1,
-        100,
-        1,
-    )
-    excl_keywords = input_col2.multiselect(
-        'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Keywords zweier Datensätze)',
-        sorted(available_keywords),
-        list(DEFAULT_EXCLUDE_KEYWORDS),
-    )
-    with input_col2.expander('Advanced') as exp:
+logging.basicConfig(level=logging.INFO)
+st.set_page_config(layout="wide")
+st.title('OGD Kanton Zürich Zugriffsstatistik')
+header_col1, header_col2 = st.columns((0.7, 0.3), gap='medium')
+intro = header_col1.markdown(intro_text(30))
+header_col2.markdown(
+    f"""
+    Quellen:
+    * [OGD Metadatenkatalog Kanton Zürich]({OGD_METADATA_URL})
+    * [Datensätze Metadatenkatalog (API)]({METADATA_URL})
+    * [Zugriffs-Statistik (Ebene Datensatz)]({STATISTICS_URL_DATASET})
+    * [Zugriffs-Statistik (Ebene Resource)]({STATISTICS_URL})
+    * [Link Datensatz Metadatenkatalog]({STATISTICS_METADATA_URL})
+    * [Github-Repo]({GITHUB_URL})
+"""
+)
 
-        input_bigger_than_similarity = st.slider(
-            'Erforderliche Ähnlichkeit für Darstellung des Edges (grösser als, Werte von 0 bis 1)',
-            0.0,
-            1.0,
-            0.0,
-            step=0.01,
-        )
-        input_scale = st.number_input(
-            'Skalierung des Graphen (je grösser, desto grösser wird die Karte). Werte zw. 200 und 30000. Default `-0.0580631 x^2 + 68.2061 x + 414.532`',
-            min_value=200,
-            max_value=30_000,
-            value=None,
-        )
-        input_spring_k = st.number_input(
-            'Optimale Distanz zwischen Nodes (Werte zwischen 0.01 und 1). Je grösser, desto weiter liegen Nodes auseinander. Default: `1/anzahl_nodes**(1/3)`',
-            min_value=0.01,
-            max_value=1.0,
-            value=None,
-        )
+container = st.container(border=True)
+input_col1, input_col2 = container.columns(2, gap='medium')
+input_col1.subheader('Filter')
+input_value_col = input_col1.radio(
+    label='Anzuzeigende Werte',
+    options=list(VALUE_COLUMNS.keys()),
+    format_func=lambda x: VALUE_COLUMNS[x],
+)
+timespan = input_col1.slider(
+    'Vergleich Zugriffszahlen (in Tagen)',
+    1,
+    360,
+    (30, 180),
+)
+input_exclude_orgs = input_col1.multiselect(
+    'Organisationen exkludieren:',
+    available_orgs,
+)
+input_include_orgs = input_col1.multiselect(
+    'Organisationen auswählen:',
+    available_orgs,
+)
+input_include_keywords = input_col1.multiselect(
+    'Keywords auswählen:',
+    sorted(available_keywords),
+)
 
-    fig, df_stat_out_org, df_stat_out_dataset, cnt_nodes, cnt_edges = main(
-        data_stat=data_stat,
-        data_meta=data_meta,
-        value_col=input_value_col,
-        avg_long_days=timespan[1],
-        avg_short_days=timespan[0],
-        exclude_keywords=set(excl_keywords),
-        bigger_than_similarity=input_bigger_than_similarity,
-        threshold_avg_long=input_thresold_avg_long,
-        exclude_orgs=input_exclude_orgs,
-        include_orgs=input_include_orgs,
-        include_keywords=input_include_keywords,
-        spring_k=input_spring_k,
-        scale=input_scale,
+input_col2.subheader('Generierung Graph')
+intro.write(intro_text(timespan[0]))
+input_thresold_avg_long = input_col2.slider(
+    f'Durchschnittliche Zugriffe (mindestens, letzte {timespan[1]} Tage)',
+    1,
+    100,
+    1,
+)
+excl_keywords = input_col2.multiselect(
+    'Auszuschliessende Keywords (beim Vergleich der Ähnlichkeit von Keywords zweier Datensätze)',
+    sorted(available_keywords),
+    list(DEFAULT_EXCLUDE_KEYWORDS),
+)
+with input_col2.expander('Advanced') as exp:
+
+    input_bigger_than_similarity = st.slider(
+        'Erforderliche Ähnlichkeit für Darstellung des Edges (grösser als, Werte von 0 bis 1)',
+        0.0,
+        1.0,
+        0.0,
+        step=0.01,
     )
-
-    st.subheader('Graph')
-    annotated_text(
-        (f'{cnt_nodes}', 'Nodes'),
-        ' ',
-        (f'{cnt_edges}', 'Edges'),
+    input_scale = st.number_input(
+        'Skalierung des Graphen (je grösser, desto grösser wird die Karte). Werte zw. 200 und 30000. Default `-0.0580631 x^2 + 68.2061 x + 414.532`',
+        min_value=200,
+        max_value=30_000,
+        value=None,
+    )
+    input_spring_k = st.number_input(
+        'Optimale Distanz zwischen Nodes (Werte zwischen 0.01 und 1). Je grösser, desto weiter liegen Nodes auseinander. Default: `1/anzahl_nodes**(1/3)`',
+        min_value=0.01,
+        max_value=1.0,
+        value=None,
     )
 
-    _html = fig.to_html_standalone()
-    st.components.v1.html(_html, height=1208)
-    st.subheader('Zugriffsstatistik Organisation')
-    st.markdown(
-        f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der publizierenden Organisationen der letzten'
-        f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
-    )
-    st.dataframe(
-        df_stat_out_org.style.applymap(
-            lambda col: f"background-color: {col}", subset=['Farbe']
-        ),
-        hide_index=True,
-    )
-    st.subheader('Zugriffsstatistik Datensatz')
-    st.markdown(
-        f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der einzelnen Datensätze der letzten'
-        f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
-    )
-    st.dataframe(
-        df_stat_out_dataset,
-        column_config=dict(
-            url=st.column_config.LinkColumn('URL', display_text='Link'),
-        ),
-        hide_index=True,
-    )
+fig, df_stat_out_org, df_stat_out_dataset, cnt_nodes, cnt_edges = main_calc(
+    data_stat=data_stat,
+    data_meta=data_meta,
+    value_col=input_value_col,
+    avg_long_days=timespan[1],
+    avg_short_days=timespan[0],
+    exclude_keywords=set(excl_keywords),
+    bigger_than_similarity=input_bigger_than_similarity,
+    threshold_avg_long=input_thresold_avg_long,
+    exclude_orgs=input_exclude_orgs,
+    include_orgs=input_include_orgs,
+    include_keywords=input_include_keywords,
+    spring_k=input_spring_k,
+    scale=input_scale,
+)
+
+st.subheader('Graph')
+annotated_text(
+    (f'{cnt_nodes}', 'Nodes'),
+    ' ',
+    (f'{cnt_edges}', 'Edges'),
+)
+
+_html = fig.to_html_standalone()
+st.components.v1.html(_html, height=1208)
+st.subheader('Zugriffsstatistik Organisation')
+st.markdown(
+    f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der publizierenden Organisationen der letzten'
+    f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
+)
+st.dataframe(
+    df_stat_out_org.style.applymap(
+        lambda col: f"background-color: {col}", subset=['Farbe']
+    ),
+    hide_index=True,
+)
+st.subheader('Zugriffsstatistik Datensatz')
+st.markdown(
+    f'Die nachfolgende Tabelle zeigt die Zugriffsstatistik der einzelnen Datensätze der letzten'
+    f'`{timespan[0]}` Tage unter Berücksichtigung der gesetzten Filter.'
+)
+st.dataframe(
+    df_stat_out_dataset,
+    column_config=dict(
+        url=st.column_config.LinkColumn('URL', display_text='Link'),
+    ),
+    hide_index=True,
+)

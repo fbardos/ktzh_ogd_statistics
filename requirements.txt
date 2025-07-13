@@ -4,6 +4,6 @@ networkx
 pandas
 requests
 seaborn
-streamlit==1.32
+streamlit
 st-annotated-text
 scipy
